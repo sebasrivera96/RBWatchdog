@@ -9,7 +9,7 @@ use std::sync::Mutex;
 // DEFAULT_TOKEN = a2fc903eeaeadf3cbc87cbbdc03ef2d02241217f
 // static BASE_PATH: String = "https://review-board.natinst.com/api/review-requests/";
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct Client {
     token: String,
     review_id: String,
@@ -20,6 +20,17 @@ struct Client {
 }
 
 impl Client {
+    fn empty_client() -> Client {
+        Client {
+            token: String::from(""),
+            review_id: String::from(""),
+            status: String::from(""),
+            timestamp: String::from(""),
+            username: String::from(""),
+            summary: String::from("")
+        }
+    }
+
     fn get_reviews_last_update(&mut self) -> bool {
         // => Local Vars
         let base_path = String::from("https://review-board.natinst.com/api/review-requests/");
@@ -35,30 +46,28 @@ impl Client {
         
         // => Update info, IF new info available
         if last_update_json["last_update"]["timestamp"].to_string() != self.timestamp {
-            println!("==> Timestamp is new!");
-            self.status = last_update_json["stat"].to_string();
-            self.timestamp = last_update_json["last_update"]["timestamp"].to_string();
-            self.username = last_update_json["last_update"]["user"]["username"].to_string();
-            self.summary = last_update_json["last_update"]["summary"].to_string();
+            self.update_review_info(&last_update_json);
             return true;
         }
 
-        // => No update available
+        println!("==> No update available.");
         return false;
-}
+    }
+
+    fn update_review_info(&mut self, last_update: &Value) {
+        self.status = last_update["stat"].to_string();
+        self.timestamp = last_update["last_update"]["timestamp"].to_string();
+        self.username = last_update["last_update"]["user"]["username"].to_string();
+        self.summary = last_update["last_update"]["summary"].to_string();
+        
+        println!("==> New information available! {:#?}", self);
+    }
 }
 
 fn main() {
     // HTTP Server begins & Create a New Client
     println!("Now listening on localhost:8000"); 
-    let single_client = Client{
-        token: String::from(""),
-        review_id: String::from(""),
-        status: String::from(""),
-        timestamp: String::from(""),
-        username: String::from(""),
-        summary: String::from(""),
-    };
+    let single_client = Client::empty_client();
     let request_client = Mutex::new(single_client);
 
     rouille::start_server("0.0.0.0:8000", move |request| {
