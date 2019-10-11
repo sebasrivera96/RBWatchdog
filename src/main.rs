@@ -10,48 +10,25 @@ use std::sync::Mutex;
 // static BASE_PATH: String = "https://review-board.natinst.com/api/review-requests/";
 
 #[derive(Serialize, Debug)]
-struct Client {
-    token: String,
+struct ReviewInfo {
     review_id: String,
     status: String,
     timestamp: String,
     username: String,
     summary: String,
+    new_update_available: bool,
 }
 
-impl Client {
-    fn empty_client() -> Client {
-        Client {
-            token: String::from(""),
-            review_id: String::from(""),
+impl ReviewInfo {
+    fn normal_constructor(review_id: String) -> ReviewInfo {
+        ReviewInfo {
+            review_id: review_id,
             status: String::from(""),
             timestamp: String::from(""),
             username: String::from(""),
-            summary: String::from("")
+            summary: String::from(""),
+            new_update_available: false,
         }
-    }
-
-    fn get_reviews_last_update(&mut self) -> bool {
-        // => Local Vars
-        let base_path = String::from("https://review-board.natinst.com/api/review-requests/");
-        let last_update_method = String::from("/last-update/");
-        let request_url = base_path + &self.review_id + &last_update_method;
-
-        // => Call Review Board API
-        let client = reqwest::blocking::Client::new();
-        let last_update_json: Value = client.get(&request_url)
-            .header(AUTHORIZATION, "token ".to_owned() + &self.token)
-            .send().unwrap()
-            .json().unwrap();
-        
-        // => Update info, IF new info available
-        if last_update_json["last_update"]["timestamp"].to_string() != self.timestamp {
-            self.update_review_info(&last_update_json);
-            return true;
-        }
-
-        println!("==> No update available.");
-        return false;
     }
 
     fn update_review_info(&mut self, last_update: &Value) {
@@ -59,8 +36,63 @@ impl Client {
         self.timestamp = last_update["last_update"]["timestamp"].to_string();
         self.username = last_update["last_update"]["user"]["username"].to_string();
         self.summary = last_update["last_update"]["summary"].to_string();
-        
+        self.new_update_available = true;
         println!("==> New information available! {:#?}", self);
+    }
+
+    fn create_request_url(&self, base_path: &String, method: &String) -> String {
+        let mut response = String::from("");
+        response.push_str(base_path);
+        response.push_str(&self.review_id);
+        response.push_str(method);
+        response
+    }
+}
+
+#[derive(Serialize, Debug)]
+struct Client {
+    token: String,
+    review_ids: Vec<ReviewInfo>,
+}
+
+impl Client {
+    fn empty_client() -> Client {
+        Client {
+            token: String::from(""),
+            review_ids: Vec::<ReviewInfo>::new(),
+        }
+    }
+
+    fn add_new_review(&mut self, new_review_id: String) {
+        let new_review_info = ReviewInfo::normal_constructor(new_review_id);
+        self.review_ids.push(new_review_info);
+    }
+
+    fn get_reviews_last_update(&mut self) {
+        // => Local Vars
+        let base_path = String::from("https://review-board.natinst.com/api/review-requests/");
+        let last_update_method = String::from("/last-update/");
+
+        // => Iterate over the reviews
+        for temp_review_id in &mut self.review_ids {
+            let request_url = temp_review_id.create_request_url(&base_path, &last_update_method);
+        
+            // => Call Review Board API
+            let client = reqwest::blocking::Client::new();
+            let last_update_json: Value = client.get(&request_url)
+                .header(AUTHORIZATION, "token ".to_owned() + &self.token)
+                .send().unwrap()
+                .json().unwrap();
+        
+            // => Update info, IF new info available
+            if last_update_json["last_update"]["timestamp"].to_string() != temp_review_id.timestamp {
+                temp_review_id.update_review_info(&last_update_json);
+            }
+            // => Clear the new_update_available member
+            else {
+                temp_review_id.new_update_available = false;
+            }
+        }
     }
 }
 
@@ -77,17 +109,14 @@ fn main() {
                 println!("==> NEW TOKEN: {}", (*request_client.lock().unwrap()).token);
                 rouille::Response::text("TOKEN UPDATED!")
             },
-            (GET) (/add_review_id/{new_review_id: String}) => {
-                (*request_client.lock().unwrap()).review_id = new_review_id;
-                println!("==> NEW REVIEW: {}", (*request_client.lock().unwrap()).review_id);
+            (GET) (/add_review_id/{new_review_id: String})  => {
+                (*request_client.lock().unwrap()).add_new_review(new_review_id);
+                println!("==> NEW REVIEW ID ADDED. NEW LENGTH: {}", (*request_client.lock().unwrap()).review_ids.len());
                 rouille::Response::text("NEW REVIEW UPDATED!")
             },
             (GET) (/get_updates/) => {
-                let new_update_available: bool = (*request_client.lock().unwrap()).get_reviews_last_update();             
-                if new_update_available {
-                    return rouille::Response::json(&(*request_client.lock().unwrap()));
-                }
-                rouille::Response::text("NO UPDATE AVAILABLE.")
+                (*request_client.lock().unwrap()).get_reviews_last_update();             
+                rouille::Response::json(&(*request_client.lock().unwrap()))
             },
 
             // The code block is called if none of the other blocks matches the request.
