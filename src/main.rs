@@ -7,7 +7,6 @@ use serde_json::Value;
 use std::sync::Mutex;
 
 // DEFAULT_TOKEN = a2fc903eeaeadf3cbc87cbbdc03ef2d02241217f
-// static BASE_PATH: String = "https://review-board.natinst.com/api/review-requests/";
 
 #[derive(Serialize, Debug)]
 struct ReviewInfo {
@@ -99,14 +98,20 @@ impl Client {
 fn main() {
     // HTTP Server begins & Create a New Client
     println!("Now listening on localhost:8000"); 
+    /* @TODO: As future step, handle multiple clients
+    let multiple_clients = Vec::<Client>::new();
+    let multiple_clients_mutex = Mutex::new(multiple_clients);*/
+
     let single_client = Client::empty_client();
     let request_client = Mutex::new(single_client);
 
-    rouille::start_server("0.0.0.0:8000", move |request| {
+    rouille::start_server("127.0.0.1:8000", move |request| {
         router!(request,
             (GET) (/set_token/{new_token: String}) => {
                 (*request_client.lock().unwrap()).token = new_token;
                 println!("==> NEW TOKEN: {}", (*request_client.lock().unwrap()).token);
+
+                // @TODO: Try pushing a new Client to the Vector & Return a short token/identifier
                 rouille::Response::text("TOKEN UPDATED!")
             },
             (GET) (/add_review_id/{new_review_id: String})  => {
